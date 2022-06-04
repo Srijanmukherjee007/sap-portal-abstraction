@@ -20,7 +20,7 @@ export interface Attendance {
     percentageWithExcuses: number
 }
 
-export interface StudentAttendace {
+export interface StudentAttendance {
     student: Student,
     attendances: Attendance[]
 }

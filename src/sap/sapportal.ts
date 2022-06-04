@@ -1,6 +1,6 @@
 import puppeteer from "puppeteer";
 import BrowserManager from "./browsermanager";
-import { Attendance, Session, Student, StudentAttendace, Year } from "./types";
+import { Attendance, Session, Student, StudentAttendance, Year } from "./types";
 
 const SAP_PORTAL_URL = "https://kiitportal.kiituniversity.net/irj/portal/";
 const MAIN_FRAME_SELECTOR = "#ivuFrm_page0ivu4";
@@ -12,6 +12,50 @@ const STUD_SEMESTER_SELECTOR = "#WD3F";
 const STUD_ROLL_SELECTOR = "#WD29";
 const STUD_REG_SELECTOR = "#WD35";
 const STUD_IMG_SELECTOR = "#WD4F";
+const DEFAULT_PARSER = (val) => val;
+const ATTENDANCE_DATA_MAPPING = {
+    "Subject": {
+        key: 'subject',
+        parser: DEFAULT_PARSER
+    },
+    "No.of Present": {
+        key: 'presents',
+        parser: parseInt
+    },
+    "No.of Absent": {
+        key: 'absents',
+        parser: parseInt
+    },
+    "No. of Excuses": {
+        key: 'excuses',
+        parser: parseInt
+    },
+    "Total No. of Days": {
+        key: 'totalClasses',
+        parser: parseInt
+    },
+    "Total Percentage": {
+        key: 'percentage',
+        parser: parseFloat
+    },
+    "Total Percentage with Excuses": {
+        key: 'percentageWithExcuses',
+        parser: parseFloat
+    },
+    "Faculty Name": (data) => {
+        if (isNaN(data)) {
+            return {
+                key: 'facultyName',
+                parser: DEFAULT_PARSER
+            }
+        } else {
+            return {
+                key: 'facultyCode',
+                parser: DEFAULT_PARSER
+            }
+        }
+    }
+}
 
 async function getMainFrame(page: puppeteer.Page): Promise<puppeteer.Frame> {
     console.log("[INFO] getting main iframe to load");
@@ -86,20 +130,46 @@ async function loadAttendanceReport(innerFrame: puppeteer.Frame, academic_year: 
     await innerFrame.click(SUBMIT_BTN_SELECTOR);
 }
 
-function mapToAttendance(details: any[]): Attendance {
+function mapToAttendance(details: any[], mapping): Attendance {
     if (details.length != 10) return null;
 
-    return {
-        subject: details[1],
-        presents: Number.parseInt(details[2]),
-        absents: Number.parseInt(details[3]),
-        excuses: Number.parseInt(details[4]),
-        totalClasses: Number.parseInt(details[5]),
-        percentage: Number.parseFloat(details[6]),
-        facultyCode: details[7],
-        facultyName: details[8],
-        percentageWithExcuses: Number.parseFloat(details[9])
+    const attendance = {
+        subject: "",
+        facultyName: "",
+        facultyCode: "",
+        totalClasses: 0,
+        absents: 0,
+        excuses: 0,
+        presents: 0,
+        percentage: 0,
+        percentageWithExcuses: 0
     };
+
+    for (let i = 1; i < 10; i++) {
+        const name = mapping[i];
+
+        if (ATTENDANCE_DATA_MAPPING[name] instanceof Function) {
+            const mapData = ATTENDANCE_DATA_MAPPING[name](details[i]);
+            attendance[mapData.key] = mapData.parser(details[i]);
+        } else {
+            attendance[ATTENDANCE_DATA_MAPPING[name].key] = ATTENDANCE_DATA_MAPPING[name].parser(details[i])
+        }
+    }
+
+    return attendance;
+}
+
+async function getAttendanceDataMapping(innerFrame: puppeteer.Frame) {
+
+    const row = await innerFrame.$("#WD84 tr[rt='2']");
+    const cells = await row.$$("th");
+    const mapping = {};
+
+    for (let i = 1; i <= 9; i++) {
+        mapping[i] = await cells[i].evaluate(el => el.textContent);
+    }
+
+    return mapping;
 }
 
 export async function login(
@@ -128,7 +198,7 @@ export async function login(
 export async function getStudentAttendanceDetails(
     page: puppeteer.Page,
     academic_year: Year,
-    session: Session): Promise<StudentAttendace> {
+    session: Session): Promise<StudentAttendance> {
 
     const mainFrame = await getMainFrame(page);
     await navigateTo(mainFrame, "Student Attendance Details");
@@ -142,6 +212,8 @@ export async function getStudentAttendanceDetails(
     const attendances: Attendance[] = [];
 
     try {
+        const dataMapping = await getAttendanceDataMapping(innerFrame);
+
         // if a row element tr as the attribute rr='0' it means 
         // the data is not loaded yet or there's no data
         // if there's no data it will timeout
@@ -163,9 +235,10 @@ export async function getStudentAttendanceDetails(
                 attendanceDetails.push(value);
             }
 
-            attendances.push(mapToAttendance(attendanceDetails));
+            attendances.push(mapToAttendance(attendanceDetails, dataMapping));
         }
     } catch (e) {
+        console.log(e);
         console.warn("[WARN] No attendance details found");
     }
 
