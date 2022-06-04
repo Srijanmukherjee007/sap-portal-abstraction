@@ -6,7 +6,7 @@ import CenterLoading from "./CenterLoading";
 import Login from "./Login";
 import Result from "./Result";
 
-const API_URL = "http://localhost:8080/attendance";
+const API_URL = "https://sap-portal-bypass.herokuapp.com/attendance";
 
 enum AppState { LOGIN, LOADING, RESULT, ERROR }
 
